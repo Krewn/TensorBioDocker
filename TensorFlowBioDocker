@@ -1,0 +1,192 @@
+#################################################################
+# Dockerfile
+#
+# Version:          1
+# Software:         Tracer Image Base + tensorFlow From BioDocker base Image
+# Software Version: lul wut?
+# Description:      Image for Data Sciencing.
+# Website:          krewn.github.io
+# Tags:             Genomics|Proteomics|Transcriptomics|General|Metabolomics|Immunology
+# Provides:         autotools-dev|automake|cmake|curl|fuse|git|wget|zip|openjdk-7-jre|
+#                   build-essential|pkg-config|python|python-dev|python-pip|zlib1g-dev|
+#					Bowtie2|Trinity|IgBLAST|Kallisto|Graphviz
+#                   
+# Base Image:       ubuntu:14.04.3
+# Build Cmd:        docker build --rm -t biodckr/biodocker .
+# Pull Cmd:         docker pull Final Location of this file
+# Run Cmd:          docker run --rm biodckr/biodocker bash
+#################################################################
+
+FROM ubuntu:14.04
+
+MAINTAINER Mike Stubbington <st9@sanger.ac.uk>
+# That email belongs to Sarah Teichmann...
+# DockerFile amalgimator -> Kevin Nelson <kpie314@gmail.com>
+
+## bowtie/1.1.2/Dockerfile Start
+
+ENV ZIP=bowtie-1.1.2-linux-x86_64.zip
+ENV URL=https://github.com/BioDocker/software-archive/releases/download/bowtie
+ENV FOLDER=bowtie-1.1.2
+ENV DST=/home/biodocker/bin
+
+RUN wget $URL/$ZIP -O $DST/$ZIP && \
+  unzip $DST/$ZIP -d $DST && \
+  rm $DST/$ZIP && \
+  mv $DST/$FOLDER/* $DST && \
+  rmdir $DST/$FOLDER
+
+## bowtie/1.1.2/Dockerfile END
+
+## BioDockerStart < -----
+
+# Set noninterative mode
+ENV DEBIAN_FRONTEND noninteractive
+
+################## BEGIN INSTALLATION ######################
+
+# add apt mirror
+RUN mv /etc/apt/sources.list /etc/apt/sources.list.bkp && \
+    bash -c 'echo -e "deb mirror://mirrors.ubuntu.com/mirrors.txt precise main restricted universe multiverse\n\
+deb mirror://mirrors.ubuntu.com/mirrors.txt precise-updates main restricted universe multiverse\n\
+deb mirror://mirrors.ubuntu.com/mirrors.txt precise-backports main restricted universe multiverse\n\
+deb mirror://mirrors.ubuntu.com/mirrors.txt precise-security main restricted universe multiverse\n\n" > /etc/apt/sources.list' && \
+    cat /etc/apt/sources.list.bkp >> /etc/apt/sources.list && \
+    cat /etc/apt/sources.list
+
+# apt update and install global requirements
+RUN apt-get clean all &&\
+    apt-get update &&\ 
+    apt-get upgrade -y && \
+    apt-get install -y  \
+        autotools-dev   \
+        automake        \
+        cmake           \
+        curl            \
+        fuse            \
+        git             \
+        wget            \
+        zip             \
+        openjdk-7-jre   \
+        build-essential \
+        pkg-config      \
+        python          \
+	python-dev      \
+        python-pip      \
+        zlib1g-dev && \
+    apt-get clean && \
+    apt-get purge && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+#        subversion \
+#        mercurial  \
+#        cvs        \
+
+# create shared folders
+RUN mkdir /data /config
+
+# Add user biodocker with password biodocker
+RUN useradd --create-home --shell /bin/bash --user-group --uid 1000 --groups sudo,fuse biodocker && \
+    echo `echo "biodocker\nbiodocker\n" | passwd biodocker` && \
+    chown biodocker:biodocker /data && \
+    chown biodocker:biodocker /config
+	
+## BioDockerEnd  < -----
+
+## TFDockerSTART < -----
+
+# Pick up some TF dependencies
+
+RUN apt-get update && apt-get install -y \
+        libfreetype6-dev \
+        libpng12-dev \
+        libzmq3-dev \
+        python-numpy \
+        python-scipy \
+        && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN curl -O https://bootstrap.pypa.io/get-pip.py && \
+    python get-pip.py && \
+    rm get-pip.py
+
+RUN pip --no-cache-dir install \
+        ipykernel \
+        jupyter \
+        matplotlib \
+		Seaborn \
+		Biopython \
+		Prettytable \
+		Levenshtein \
+		Networkx \
+        && \
+    python -m ipykernel.kernelspec
+
+ENV TENSORFLOW_VERSION 0.8.0
+
+##TFDockerEND < -----
+
+#https://github.com/tensorflow/tensorflow/blob/master/tensorflow/tools/docker/parameterized_docker_build.sh#L207
+# ^ See parameterized_docker_build.sh
+## TF DOCKER START
+
+# --- DO NOT EDIT OR DELETE BETWEEN THE LINES --- #
+# These lines will be edited automatically by parameterized_docker_build.sh. #
+# COPY _PIP_FILE_ /
+# RUN pip --no-cache-dir install /_PIP_FILE_
+# RUN rm -f /_PIP_FILE_
+
+# Install TensorFlow CPU version from central repo
+RUN pip --no-cache-dir install \
+    http://storage.googleapis.com/tensorflow/linux/cpu/tensorflow-${TENSORFLOW_VERSION}-cp27-none-linux_x86_64.whl
+# --- ~ DO NOT EDIT OR DELETE BETWEEN THE LINES --- #
+
+# Set up our notebook config.
+COPY jupyter_notebook_config.py /root/.jupyter/
+
+# Copy sample notebooks.
+COPY notebooks /notebooks
+
+# Jupyter has issues with being run directly:
+# https://github.com/ipython/ipython/issues/7062
+# We just add a little wrapper script.
+COPY run_jupyter.sh /
+
+# TensorBoard
+EXPOSE 6006
+# IPython
+EXPOSE 8888
+
+WORKDIR "/notebooks"
+
+CMD ["/run_jupyter.sh"]
+## TF DOCKER END
+
+## BioDockerContinue < -----
+
+# Change user
+USER biodocker
+
+# Create $HOME/bin folder
+RUN mkdir /home/biodocker/bin
+
+# Add $HOME/bin to path
+ENV PATH=$PATH:/home/biodocker/bin
+ENV HOME=/home/biodocker
+
+# Share default volumes
+VOLUME ["/data", "/config"]
+
+# Overwrite this with 'CMD []' in a dependent Dockerfile
+CMD ["/bin/bash"]
+
+# change workdir
+WORKDIR /data
+
+##################### INSTALLATION END #####################
+
+# File Author / Maintainer
+# MAINTAINER Felipe da Veiga Leprevost <felipe@leprevost.com.br>
+
+## BioDockerEnd < -----
